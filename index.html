@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ultimate SRS Manager</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #090216;
+            --card: #29046e;
+            --text: #5c90e3;
+            --accent: #f59e0b;
+            --danger: #ef4444;
+            --success: #10b981;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 15px;
+            line-height: 1.6;
+        }
+
+        .container { max-width: 800px; margin: 0 auto; }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .card {
+            background: var(--card);
+            padding: 1.2rem;
+            border-radius: 16px;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+            margin-bottom: 1.2rem;
+        }
+
+        h2 { margin: 0 0 1rem 0; font-size: 1.1rem; color: var(--primary); font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; }
+
+        /* Form Styling */
+        .form-group { display: flex; flex-direction: column; gap: 12px; }
+        
+        .input-wrapper { display: flex; flex-direction: column; gap: 4px; }
+        label { font-size: 0.75rem; font-weight: 700; color: #64748b; margin-left: 4px; }
+
+        input, select, button {
+            padding: 14px;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            font-size: 16px; /* Prevents iOS/Android zoom on focus */
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        input:focus { border-color: var(--primary); }
+
+        button {
+            cursor: pointer;
+            background: var(--primary);
+            color: white;
+            border: none;
+            font-weight: 700;
+            transition: transform 0.1s;
+        }
+
+        button:active { transform: scale(0.98); }
+        button.secondary { background: #64748b; padding: 8px 16px; font-size: 0.8rem; }
+        button.sync { background: var(--success); }
+
+        /* Task List */
+        .task-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .task-info .topic-name { font-weight: 700; display: block; font-size: 1.05rem; }
+        .task-info .course-tag { font-size: 0.7rem; color: var(--primary); font-weight: 800; background: #dbeafe; padding: 2px 8px; border-radius: 6px; }
+
+        .status-badge { font-size: 0.7rem; padding: 4px 10px; border-radius: 8px; font-weight: 800; margin-top: 4px; display: inline-block; }
+        .due-badge { background: #dcfce7; color: #15803d; }
+        .overdue { background: #fee2e2; color: #b91c1c; }
+
+        #adminPanel { display: none; background: #fafafa; border: 2px dashed #cbd5e1; }
+
+        .sync-box { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.85rem; }
+        th, td { text-align: left; padding: 10px; border-bottom: 1px solid #e2e8f0; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1 style="font-size: 1.4rem;">SRS Master</h1>
+        <button onclick="toggleAdmin()" class="secondary">SETTINGS</button>
+    </header>
+
+    <div class="card">
+        <h2>Add Topic</h2>
+        <div class="form-group">
+            <input type="text" id="topicInput" placeholder="Topic Name">
+            <input type="text" id="courseInput" placeholder="Course (Optional)">
+            <div class="input-wrapper">
+                <label>STUDY DATE (DEFAULTS TO TODAY)</label>
+                <input type="date" id="dateInput">
+            </div>
+            <button onclick="addTopic()">ADD TO SYSTEM</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>Tasks For Today</h2>
+        <div id="taskList"></div>
+    </div>
+
+    <div id="adminPanel" class="card">
+        <h2>Admin Panel</h2>
+        <div class="sync-box">
+            <button onclick="exportData()" class="sync">EXPORT BACKUP</button>
+            <button onclick="importData()" class="sync">IMPORT BACKUP</button>
+        </div>
+        <div id="adminTableContainer" style="overflow-x: auto;"></div>
+        <button onclick="clearAllData()" class="danger" style="width: 100%; margin-top: 20px;">WIPE ALL DATA</button>
+    </div>
+</div>
+
+<script>
+    const COORDINATES = [
+        { label: 'Day 1', days: 1 }, { label: 'Day 3', days: 3 }, { label: '1 Week', days: 7 },
+        { label: '1 Month', days: 30 }, { label: '3 Months', days: 90 }, { label: '1 Year', days: 365 },
+        { label: '3 Years', days: 1095 }, { label: '12 Years', days: 4380 }, { label: '30 Years', days: 10950 }, { label: '70 Years', days: 25550 }
+    ];
+
+    let studyData = JSON.parse(localStorage.getItem('srs_pro_data')) || [];
+
+    function save() {
+        localStorage.setItem('srs_pro_data', JSON.stringify(studyData));
+        render();
+    }
+
+    function addTopic() {
+        const topic = document.getElementById('topicInput').value;
+        const course = document.getElementById('courseInput').value || "General";
+        const dateVal = document.getElementById('dateInput').value;
+        if (!topic) return alert("Enter a topic");
+
+        const start = dateVal ? new Date(dateVal) : new Date();
+        start.setHours(0,0,0,0);
+
+        studyData.push({
+            id: Date.now(),
+            topic, course,
+            lastStudied: start.getTime(),
+            coordinateIndex: 0,
+            nextReview: calculateNext(start.getTime(), 1),
+            created: Date.now()
+        });
+        save();
+        document.getElementById('topicInput').value = '';
+        document.getElementById('courseInput').value = '';
+        document.getElementById('dateInput').value = '';
+    }
+
+    function calculateNext(last, days) {
+        const d = new Date(last);
+        d.setDate(d.getDate() + days);
+        return d.getTime();
+    }
+
+    function completeTask(id) {
+        const item = studyData.find(d => d.id === id);
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        item.lastStudied = today.getTime();
+        item.coordinateIndex++;
+        item.nextReview = item.coordinateIndex < COORDINATES.length ? 
+            calculateNext(item.lastStudied, COORDINATES[item.coordinateIndex].days) : null;
+        save();
+    }
+
+    function toggleAdmin() {
+        const p = document.getElementById('adminPanel');
+        p.style.display = p.style.display === 'block' ? 'none' : 'block';
+    }
+
+    function render() {
+        const taskList = document.getElementById('taskList');
+        const now = new Date().setHours(0,0,0,0);
+
+        const due = studyData
+            .filter(i => i.nextReview && i.nextReview <= now)
+            .sort((a,b) => b.created - a.created);
+
+        taskList.innerHTML = due.length ? '' : '<p style="text-align:center; color:#64748b;">All caught up!</p>';
+        
+        due.forEach(t => {
+            const isOverdue = t.nextReview < now;
+            const div = document.createElement('div');
+            div.className = 'task-item';
+            div.innerHTML = `
+                <div class="task-info">
+                    <span class="course-tag">${t.course}</span>
+                    <span class="topic-name">${t.topic}</span>
+                    <span class="status-badge ${isOverdue ? 'overdue' : 'due-badge'}">
+                        ${isOverdue ? 'MISSED COORD' : 'NEXT: '+COORDINATES[t.coordinateIndex].label}
+                    </span>
+                </div>
+                <button onclick="completeTask(${t.id})">DONE</button>
+            `;
+            taskList.appendChild(div);
+        });
+
+        let h = `<table><tr><th>Topic</th><th>Coord</th><th>X</th></tr>`;
+        studyData.forEach(item => {
+            h += `<tr><td>${item.topic}</td><td>
+                <select onchange="manualEdit(${item.id}, this.value)">
+                    ${COORDINATES.map((c,i)=>`<option value="${i}" ${item.coordinateIndex==i?'selected':''}>${c.label}</option>`).join('')}
+                </select>
+            </td><td><button onclick="del(${item.id})" style="background:none; color:red; border:none; padding:0;">🗑</button></td></tr>`;
+        });
+        document.getElementById('adminTableContainer').innerHTML = h + `</table>`;
+    }
+
+    function manualEdit(id, idx) {
+        const item = studyData.find(d => d.id === id);
+        item.coordinateIndex = parseInt(idx);
+        item.nextReview = calculateNext(Date.now(), COORDINATES[idx].days);
+        save();
+    }
+
+    function del(id) { if(confirm("Delete?")) { studyData = studyData.filter(d => d.id !== id); save(); } }
+
+    function exportData() {
+        const blob = new Blob([JSON.stringify(studyData)], {type: 'application/json'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `srs_backup.json`;
+        a.click();
+    }
+
+    function importData() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.onchange = e => {
+            const reader = new FileReader();
+            reader.onload = ev => { studyData = JSON.parse(ev.target.result); save(); };
+            reader.readAsText(e.target.files[0]);
+        };
+        input.click();
+    }
+
+    function clearAllData() { if(confirm("ERASE EVERYTHING?")) { localStorage.clear(); location.reload(); } }
+
+    render();
+</script>
+</body>
+</html>
