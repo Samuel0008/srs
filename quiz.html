@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robust Flashcard Quiz App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background-color: #090216;
+            color: #d5fbff;
+        }
+        h1 {
+            text-align: center;
+        }
+        textarea {
+            width: 100%;
+            height: 300px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 14px;
+            margin-bottom: 20px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #1a102e;
+            color: #d5fbff;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin-right: 10px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+            color: #aaa;
+        }
+        #quiz-area {
+            display: none;
+            margin-top: 40px;
+            padding: 30px;
+            background-color: #150a26;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            min-height: 300px;
+        }
+        #question {
+            font-size: 24px;
+            margin-bottom: 30px;
+            line-height: 1.5;
+            font-weight: bold;
+        }
+        #answer {
+            font-size: 20px;
+            color: #4ade80;
+            display: none;
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #0f2e1b;
+            border-left: 5px solid #28a745;
+            border-radius: 4px;
+            white-space: pre-wrap; 
+            line-height: 1.6;
+        }
+        #controls {
+            text-align: center;
+            margin-top: 40px;
+            border-top: 1px solid #333;
+            padding-top: 20px;
+        }
+        #progress {
+            text-align: center;
+            font-size: 18px;
+            margin-top: 20px;
+            color: #888;
+        }
+        .keyboard-hint {
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <h1>Flashcard Quiz App</h1>
+    
+    <p>Paste your notes below. The app now intelligently detects questions ending in "?" and separates them from answers automatically.</p>
+    
+    <textarea id="input-text" placeholder="Paste your generated questions here...
+
+1. What is the brachial plexus? The brachial plexus is a plexus of nerves formed by the anterior rami of C5-T1.
+
+2. What are the key branches?
+They include:
+* Axillary
+* Radial
+* Median
+* Ulnar
+"></textarea>
+    
+    <div style="text-align: center;">
+        <button id="parse-btn">Start Quiz</button>
+    </div>
+    
+    <div id="quiz-area">
+        <div id="question"></div>
+        <div id="answer"></div>
+        
+        <div id="controls">
+            <button id="prev-btn">Previous</button>
+            <button id="reveal-btn">Show Answer</button>
+            <button id="next-btn">Next Question</button>
+        </div>
+        
+        <div id="progress"></div>
+        
+        <div class="keyboard-hint">
+            Keyboard shortcuts: <strong>N</strong> = Next, <strong>P</strong> = Previous, <strong>A</strong> or <strong>Space</strong> = Show/Hide Answer
+        </div>
+    </div>
+
+    <script>
+        let questions = [];
+        let currentIndex = 0;
+        let answerVisible = false;
+
+        const textarea = document.getElementById('input-text');
+        const parseBtn = document.getElementById('parse-btn');
+        const quizArea = document.getElementById('quiz-area');
+        const questionEl = document.getElementById('question');
+        const answerEl = document.getElementById('answer');
+        const prevBtn = document.getElementById('prev-btn');
+        const revealBtn = document.getElementById('reveal-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const progressEl = document.getElementById('progress');
+
+        // *** IMPROVED PARSING LOGIC ***
+        function parseInput() {
+            const text = textarea.value.trim();
+            if (!text) {
+                alert('Please paste some content first.');
+                return;
+            }
+
+            questions = [];
+            const lines = text.split('\n');
+            
+            let currentQ = null;
+            let currentABuffer = [];
+
+            // Regex breakdown:
+            // ^\s* : Start of line, ignore leading whitespace
+            // (?:\*{0,2}): Optional non-capturing bold markers (**)
+            // (\d+)      : Capture the Number
+            // [\.\)\-\s] : Separator: dot, paren, dash, OR just a space
+            // \s+        : Must have at least one space after the number/separator
+            // (.*)       : Capture the rest of the line
+            const questionStartRegex = /^\s*(?:\*{0,2})(\d+)[\.\)\-\s]\s+(.*)/;
+
+            lines.forEach((line) => {
+                const trimmedLine = line.trim();
+                
+                // Ignore empty lines only if we haven't started a question yet
+                if (!currentQ && trimmedLine === '') return;
+
+                // Ignore explicit separator lines (e.g. "---")
+                if (trimmedLine.startsWith('---') || trimmedLine.startsWith('___') || trimmedLine.startsWith('***')) {
+                    return;
+                }
+
+                const match = line.match(questionStartRegex);
+
+                if (match) {
+                    // *** 1. WE FOUND A NEW NUMBER ***
+                    
+                    // Save previous question if exists
+                    if (currentQ) {
+                        questions.push({
+                            question: currentQ,
+                            answer: cleanAnswer(currentABuffer)
+                        });
+                    }
+
+                    // *** 2. PARSE THE NEW QUESTION LINE ***
+                    // match[2] is the text after the number
+                    let rawContent = match[2];
+                    
+                    // Remove trailing bold formatting if present (**)
+                    rawContent = rawContent.replace(/\*\*$/, '').trim();
+
+                    currentABuffer = []; // Reset answer buffer
+
+                    // *** 3. CHECK FOR ANSWER ON SAME LINE (SPLIT BY '?') ***
+                    // We look for the first '?' that might indicate the end of the question
+                    const qMarkIndex = rawContent.indexOf('?');
+
+                    if (qMarkIndex !== -1 && qMarkIndex < rawContent.length - 1) {
+                        // Found a '?' and there is text AFTER it.
+                        // Part 1: Question
+                        currentQ = rawContent.substring(0, qMarkIndex + 1).trim();
+                        
+                        // Part 2: Immediate Answer
+                        const immediateAnswer = rawContent.substring(qMarkIndex + 1).trim();
+                        if (immediateAnswer) {
+                            currentABuffer.push(immediateAnswer);
+                        }
+                    } else {
+                        // No text after '?', or no '?' at all.
+                        // The whole line is the question.
+                        currentQ = rawContent;
+                    }
+
+                } else {
+                    // *** WE ARE INSIDE AN ANSWER ***
+                    if (currentQ) {
+                        currentABuffer.push(line);
+                    }
+                }
+            });
+
+            // Push the very last question found
+            if (currentQ) {
+                questions.push({
+                    question: currentQ,
+                    answer: cleanAnswer(currentABuffer)
+                });
+            }
+
+            if (questions.length === 0) {
+                alert('No numbered questions found. Please ensure your questions start with a number (e.g., "1. " or "1) ").');
+                return;
+            }
+
+            // Start the quiz
+            currentIndex = 0;
+            answerVisible = false;
+            quizArea.style.display = 'block';
+            showQuestion();
+            
+            // Scroll to quiz area
+            quizArea.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Helper to clean up the answer text
+        function cleanAnswer(buffer) {
+            // Join lines
+            let text = buffer.join('\n').trim();
+            
+            // Remove "Answer:" or "Ans:" prefix if present (case insensitive)
+            text = text.replace(/^(answer|ans)[:\-\s]*/i, '');
+            
+            return text.trim();
+        }
+
+        function showQuestion() {
+            if (questions.length === 0) return;
+
+            const q = questions[currentIndex];
+            questionEl.textContent = `${currentIndex + 1}. ${q.question}`;
+            answerEl.innerText = q.answer; 
+            
+            answerEl.style.display = 'none';
+            revealBtn.textContent = 'Show Answer';
+            revealBtn.style.backgroundColor = '#007bff';
+            answerVisible = false;
+
+            progressEl.textContent = `Question ${currentIndex + 1} of ${questions.length}`;
+
+            prevBtn.disabled = currentIndex === 0;
+            nextBtn.disabled = currentIndex === questions.length - 1;
+        }
+
+        function revealAnswer() {
+            if (answerVisible) {
+                answerEl.style.display = 'none';
+                revealBtn.textContent = 'Show Answer';
+                revealBtn.style.backgroundColor = '#007bff';
+                answerVisible = false;
+            } else {
+                answerEl.style.display = 'block';
+                revealBtn.textContent = 'Hide Answer';
+                revealBtn.style.backgroundColor = '#dc3545';
+                answerVisible = true;
+            }
+        }
+
+        function nextQuestion() {
+            if (currentIndex < questions.length - 1) {
+                currentIndex++;
+                showQuestion();
+            }
+        }
+
+        function prevQuestion() {
+            if (currentIndex > 0) {
+                currentIndex--;
+                showQuestion();
+            }
+        }
+
+        // Event listeners
+        parseBtn.addEventListener('click', parseInput);
+        prevBtn.addEventListener('click', prevQuestion);
+        nextBtn.addEventListener('click', nextQuestion);
+        revealBtn.addEventListener('click', revealAnswer);
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (quizArea.style.display === 'none') return;
+            if (document.activeElement === textarea) return;
+
+            if (e.key.toLowerCase() === 'n' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                nextQuestion();
+            } else if (e.key.toLowerCase() === 'p' || e.key === 'ArrowLeft') {
+                e.preventDefault();
+                prevQuestion();
+            } else if (e.key.toLowerCase() === 'a' || e.key === ' ' || e.key === 'Enter') {
+                e.preventDefault();
+                revealAnswer();
+            }
+        });
+    </script>
+</body>
+</html>
