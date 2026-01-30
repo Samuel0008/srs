@@ -31,7 +31,7 @@
         button {
             padding: 10px 20px;
             font-size: 16px;
-            margin-right: 10px;
+            margin: 10px 10px 20px;
             cursor: pointer;
             background-color: #007bff;
             color: white;
@@ -46,6 +46,9 @@
             cursor: not-allowed;
             color: #aaa;
         }
+        #options {
+            text-align: center;
+        }
         #quiz-area {
             display: none;
             margin-top: 40px;
@@ -54,6 +57,14 @@
             border-radius: 8px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
             min-height: 300px;
+        }
+        #section-title {
+            font-size: 22px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 30px;
+            color: #ffcc00;
+            display: none;
         }
         #question {
             font-size: 24px;
@@ -70,7 +81,7 @@
             background-color: #0f2e1b;
             border-left: 5px solid #28a745;
             border-radius: 4px;
-            white-space: pre-wrap; 
+            white-space: pre-wrap;
             line-height: 1.6;
         }
         #controls {
@@ -95,50 +106,51 @@
 </head>
 <body>
     <h1>Flashcard Quiz App</h1>
-    
-    <p>Paste your notes below. The app now intelligently detects questions ending in "?" and separates them from answers automatically.</p>
-    
-    <textarea id="input-text" placeholder="Paste your generated questions here...
-
-1. What is the brachial plexus? The brachial plexus is a plexus of nerves formed by the anterior rami of C5-T1.
-
-2. What are the key branches?
-They include:
-* Axillary
-* Radial
-* Median
-* Ulnar
-"></textarea>
-    
-    <div style="text-align: center;">
+   
+    <p>Paste your notes below. The app intelligently parses numbered or unnumbered questions, handles inline or multi-line answers, skips/uses section headers, and more.</p>
+   
+    <textarea id="input-text" placeholder="Paste your generated questions here..."></textarea>
+   
+    <div id="options">
         <button id="parse-btn">Start Quiz</button>
+        <button id="random-toggle">Randomize: Off</button>
+        <button id="reverse-toggle">Reverse Mode: Off</button>
+        <button id="section-toggle">Show Sections: Off</button>
     </div>
-    
+   
     <div id="quiz-area">
+        <div id="section-title"></div>
         <div id="question"></div>
         <div id="answer"></div>
-        
+       
         <div id="controls">
             <button id="prev-btn">Previous</button>
             <button id="reveal-btn">Show Answer</button>
-            <button id="next-btn">Next Question</button>
+            <button id="next-btn">Next</button>
         </div>
-        
+       
         <div id="progress"></div>
-        
+       
         <div class="keyboard-hint">
-            Keyboard shortcuts: <strong>N</strong> = Next, <strong>P</strong> = Previous, <strong>A</strong> or <strong>Space</strong> = Show/Hide Answer
+            Keyboard shortcuts: <strong>N</strong> / → = Next, <strong>P</strong> / ← = Previous, <strong>A</strong> / <strong>Space</strong> / <strong>Enter</strong> = Show/Hide Answer
         </div>
     </div>
-
     <script>
         let questions = [];
+        let masterQuestions = [];
         let currentIndex = 0;
         let answerVisible = false;
+        let randomized = false;
+        let reversed = false;
+        let showSections = false;
 
         const textarea = document.getElementById('input-text');
         const parseBtn = document.getElementById('parse-btn');
+        const randomToggle = document.getElementById('random-toggle');
+        const reverseToggle = document.getElementById('reverse-toggle');
+        const sectionToggle = document.getElementById('section-toggle');
         const quizArea = document.getElementById('quiz-area');
+        const sectionTitle = document.getElementById('section-title');
         const questionEl = document.getElementById('question');
         const answerEl = document.getElementById('answer');
         const prevBtn = document.getElementById('prev-btn');
@@ -146,7 +158,40 @@ They include:
         const nextBtn = document.getElementById('next-btn');
         const progressEl = document.getElementById('progress');
 
-        // *** IMPROVED PARSING LOGIC ***
+        function shuffle(arr) {
+            const a = arr.slice();
+            for (let i = a.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [a[i], a[j]] = [a[j], a[i]];
+            }
+            return a;
+        }
+
+        function applySettings() {
+            if (randomized) {
+                questions = shuffle(masterQuestions.slice());
+            } else {
+                questions = masterQuestions.slice();
+            }
+            currentIndex = 0;
+            answerVisible = false;
+            answerEl.style.display = 'none';
+            showQuestion();
+        }
+
+        function updateRevealBtn() {
+            const term = reversed ? 'Question' : 'Answer';
+            revealBtn.textContent = answerVisible ? `Hide ${term}` : `Show ${term}`;
+            revealBtn.style.backgroundColor = answerVisible ? '#dc3545' : '#007bff';
+        }
+
+        function cleanAnswer(buffer) {
+            if (buffer.length === 0) return '';
+            let text = buffer.join('\n');
+            text = text.replace(/^\s*(Answer|Ans)[:\-\s]*/i, '');
+            return text.trim();
+        }
+
         function parseInput() {
             const text = textarea.value.trim();
             if (!text) {
@@ -155,145 +200,148 @@ They include:
             }
 
             questions = [];
-            const lines = text.split('\n');
-            
             let currentQ = null;
             let currentABuffer = [];
+            let currentSection = '';
 
-            // Regex breakdown:
-            // ^\s* : Start of line, ignore leading whitespace
-            // (?:\*{0,2}): Optional non-capturing bold markers (**)
-            // (\d+)      : Capture the Number
-            // [\.\)\-\s] : Separator: dot, paren, dash, OR just a space
-            // \s+        : Must have at least one space after the number/separator
-            // (.*)       : Capture the rest of the line
-            const questionStartRegex = /^\s*(?:\*{0,2})(\d+)[\.\)\-\s]\s+(.*)/;
+            const lines = text.split('\n');
+            const numberRegex = /^\s*(\d+)\s*[\.\)\-\s]*\s*(.*)$/;
 
-            lines.forEach((line) => {
-                const trimmedLine = line.trim();
-                
-                // Ignore empty lines only if we haven't started a question yet
-                if (!currentQ && trimmedLine === '') return;
+            lines.forEach(line => {
+                const trimmed = line.trim();
 
-                // Ignore explicit separator lines (e.g. "---")
-                if (trimmedLine.startsWith('---') || trimmedLine.startsWith('___') || trimmedLine.startsWith('***')) {
+                // Skip completely empty lines unless we're in an answer block
+                if (trimmed === '' && !currentQ) {
                     return;
                 }
 
-                const match = line.match(questionStartRegex);
+                const numMatch = line.match(numberRegex);
 
-                if (match) {
-                    // *** 1. WE FOUND A NEW NUMBER ***
-                    
-                    // Save previous question if exists
+                if (numMatch) {
+                    // Numbered question found
                     if (currentQ) {
                         questions.push({
-                            question: currentQ,
-                            answer: cleanAnswer(currentABuffer)
+                            question: currentQ.trim(),
+                            answer: cleanAnswer(currentABuffer),
+                            section: currentSection
                         });
+                        currentABuffer = [];
                     }
 
-                    // *** 2. PARSE THE NEW QUESTION LINE ***
-                    // match[2] is the text after the number
-                    let rawContent = match[2];
-                    
-                    // Remove trailing bold formatting if present (**)
-                    rawContent = rawContent.replace(/\*\*$/, '').trim();
+                    let content = numMatch[2];
 
-                    currentABuffer = []; // Reset answer buffer
+                    // Look for inline answer after first "?"
+                    const qMarkIndex = content.indexOf('?');
+                    let questionText = content.trim();
+                    let immediateAnswer = '';
 
-                    // *** 3. CHECK FOR ANSWER ON SAME LINE (SPLIT BY '?') ***
-                    // We look for the first '?' that might indicate the end of the question
-                    const qMarkIndex = rawContent.indexOf('?');
-
-                    if (qMarkIndex !== -1 && qMarkIndex < rawContent.length - 1) {
-                        // Found a '?' and there is text AFTER it.
-                        // Part 1: Question
-                        currentQ = rawContent.substring(0, qMarkIndex + 1).trim();
-                        
-                        // Part 2: Immediate Answer
-                        const immediateAnswer = rawContent.substring(qMarkIndex + 1).trim();
-                        if (immediateAnswer) {
-                            currentABuffer.push(immediateAnswer);
+                    if (qMarkIndex !== -1) {
+                        const before = content.substring(0, qMarkIndex + 1);
+                        const after = content.substring(qMarkIndex + 1).trimStart();
+                        if (after) {
+                            questionText = before.trim();
+                            immediateAnswer = after;
                         }
-                    } else {
-                        // No text after '?', or no '?' at all.
-                        // The whole line is the question.
-                        currentQ = rawContent;
                     }
 
+                    currentQ = questionText;
+                    if (immediateAnswer) {
+                        currentABuffer.push(immediateAnswer);
+                    }
                 } else {
-                    // *** WE ARE INSIDE AN ANSWER ***
+                    // Not numbered
                     if (currentQ) {
+                        // Continue answer
                         currentABuffer.push(line);
+                    } else {
+                        // Possible section header or unnumbered question
+                        if (trimmed.endsWith('?')) {
+                            // Treat as unnumbered question
+                            let content = line;
+                            const qMarkIndex = content.indexOf('?');
+                            let questionText = trimmed;
+                            let immediateAnswer = '';
+
+                            if (qMarkIndex !== -1 && qMarkIndex < content.length - 1) {
+                                questionText = content.substring(0, qMarkIndex + 1).trim();
+                                immediateAnswer = content.substring(qMarkIndex + 1).trimStart();
+                            }
+
+                            currentQ = questionText;
+                            if (immediateAnswer) {
+                                currentABuffer.push(immediateAnswer);
+                            }
+                        } else if (trimmed && !trimmed.startsWith('---') && !trimmed.startsWith('___') && !trimmed.startsWith('***')) {
+                            // Assume section header
+                            currentSection = trimmed;
+                        }
+                        // Else ignore (separator or junk)
                     }
                 }
             });
 
-            // Push the very last question found
+            // Push final card
             if (currentQ) {
                 questions.push({
-                    question: currentQ,
-                    answer: cleanAnswer(currentABuffer)
+                    question: currentQ.trim(),
+                    answer: cleanAnswer(currentABuffer),
+                    section: currentSection
                 });
             }
 
             if (questions.length === 0) {
-                alert('No numbered questions found. Please ensure your questions start with a number (e.g., "1. " or "1) ").');
+                alert('No questions detected. Try numbered (1.), unnumbered questions ending in ?, or check formatting.');
                 return;
             }
 
-            // Start the quiz
-            currentIndex = 0;
-            answerVisible = false;
-            quizArea.style.display = 'block';
-            showQuestion();
-            
-            // Scroll to quiz area
-            quizArea.scrollIntoView({ behavior: 'smooth' });
-        }
+            masterQuestions = questions.slice();
 
-        // Helper to clean up the answer text
-        function cleanAnswer(buffer) {
-            // Join lines
-            let text = buffer.join('\n').trim();
-            
-            // Remove "Answer:" or "Ans:" prefix if present (case insensitive)
-            text = text.replace(/^(answer|ans)[:\-\s]*/i, '');
-            
-            return text.trim();
+            // Reset toggles for new quiz
+            randomized = false;
+            reversed = false;
+            showSections = false;
+            randomToggle.textContent = 'Randomize: Off';
+            reverseToggle.textContent = 'Reverse Mode: Off';
+            sectionToggle.textContent = 'Show Sections: Off';
+
+            applySettings();
+            quizArea.style.display = 'block';
+            quizArea.scrollIntoView({ behavior: 'smooth' });
         }
 
         function showQuestion() {
             if (questions.length === 0) return;
 
             const q = questions[currentIndex];
-            questionEl.textContent = `${currentIndex + 1}. ${q.question}`;
-            answerEl.innerText = q.answer; 
-            
-            answerEl.style.display = 'none';
-            revealBtn.textContent = 'Show Answer';
-            revealBtn.style.backgroundColor = '#007bff';
-            answerVisible = false;
 
-            progressEl.textContent = `Question ${currentIndex + 1} of ${questions.length}`;
+            const displayQ = reversed ? q.answer : q.question;
+            const displayA = reversed ? q.question : q.answer;
+
+            questionEl.textContent = `${currentIndex + 1}. ${displayQ}`;
+            answerEl.innerText = displayA || '(No answer)';
+
+            // Section handling
+            if (showSections && q.section) {
+                sectionTitle.textContent = q.section;
+                sectionTitle.style.display = 'block';
+            } else {
+                sectionTitle.style.display = 'none';
+            }
+
+            answerEl.style.display = 'none';
+            answerVisible = false;
+            updateRevealBtn();
+
+            progressEl.textContent = `Card ${currentIndex + 1} of ${questions.length}`;
 
             prevBtn.disabled = currentIndex === 0;
             nextBtn.disabled = currentIndex === questions.length - 1;
         }
 
         function revealAnswer() {
-            if (answerVisible) {
-                answerEl.style.display = 'none';
-                revealBtn.textContent = 'Show Answer';
-                revealBtn.style.backgroundColor = '#007bff';
-                answerVisible = false;
-            } else {
-                answerEl.style.display = 'block';
-                revealBtn.textContent = 'Hide Answer';
-                revealBtn.style.backgroundColor = '#dc3545';
-                answerVisible = true;
-            }
+            answerVisible = !answerVisible;
+            answerEl.style.display = answerVisible ? 'block' : 'none';
+            updateRevealBtn();
         }
 
         function nextQuestion() {
@@ -312,6 +360,25 @@ They include:
 
         // Event listeners
         parseBtn.addEventListener('click', parseInput);
+
+        randomToggle.addEventListener('click', () => {
+            randomized = !randomized;
+            randomToggle.textContent = `Randomize: ${randomized ? 'On' : 'Off'}`;
+            applySettings();
+        });
+
+        reverseToggle.addEventListener('click', () => {
+            reversed = !reversed;
+            reverseToggle.textContent = `Reverse Mode: ${reversed ? 'On' : 'Off'}`;
+            showQuestion();
+        });
+
+        sectionToggle.addEventListener('click', () => {
+            showSections = !showSections;
+            sectionToggle.textContent = `Show Sections: ${showSections ? 'On' : 'Off'}`;
+            showQuestion();
+        });
+
         prevBtn.addEventListener('click', prevQuestion);
         nextBtn.addEventListener('click', nextQuestion);
         revealBtn.addEventListener('click', revealAnswer);
@@ -321,13 +388,13 @@ They include:
             if (quizArea.style.display === 'none') return;
             if (document.activeElement === textarea) return;
 
-            if (e.key.toLowerCase() === 'n' || e.key === 'ArrowRight') {
+            if (e.key === 'n' || e.key === 'N' || e.key === 'ArrowRight') {
                 e.preventDefault();
                 nextQuestion();
-            } else if (e.key.toLowerCase() === 'p' || e.key === 'ArrowLeft') {
+            } else if (e.key === 'p' || e.key === 'P' || e.key === 'ArrowLeft') {
                 e.preventDefault();
                 prevQuestion();
-            } else if (e.key.toLowerCase() === 'a' || e.key === ' ' || e.key === 'Enter') {
+            } else if (e.key === 'a' || e.key === 'A' || e.key === ' ' || e.key === 'Enter') {
                 e.preventDefault();
                 revealAnswer();
             }
