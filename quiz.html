@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robust Flashcard Quiz App</title>
+    <title>Robust Flashcard Quiz App (Auto-Numbering)</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -106,31 +106,31 @@
 </head>
 <body>
     <h1>Flashcard Quiz App</h1>
-   
-    <p>Paste your notes below. The app intelligently parses numbered or unnumbered questions, handles inline or multi-line answers, skips/uses section headers, and more.</p>
-   
+    
+    <p>Paste your notes below. You can use numbered lists (1.), bullet points (*), or "Question:" prefixes. The app will organize them automatically.</p>
+    
     <textarea id="input-text" placeholder="Paste your generated questions here..."></textarea>
-   
+    
     <div id="options">
         <button id="parse-btn">Start Quiz</button>
         <button id="random-toggle">Randomize: Off</button>
         <button id="reverse-toggle">Reverse Mode: Off</button>
         <button id="section-toggle">Show Sections: Off</button>
     </div>
-   
+    
     <div id="quiz-area">
         <div id="section-title"></div>
         <div id="question"></div>
         <div id="answer"></div>
-       
+        
         <div id="controls">
             <button id="prev-btn">Previous</button>
             <button id="reveal-btn">Show Answer</button>
             <button id="next-btn">Next</button>
         </div>
-       
+        
         <div id="progress"></div>
-       
+        
         <div class="keyboard-hint">
             Keyboard shortcuts: <strong>N</strong> / → = Next, <strong>P</strong> / ← = Previous, <strong>A</strong> / <strong>Space</strong> / <strong>Enter</strong> = Show/Hide Answer
         </div>
@@ -192,12 +192,31 @@
             return text.trim();
         }
 
+        // --- NEW: Helper function to auto-number text ---
+        function autoNumberText(rawText) {
+            let counter = 1;
+            // Matches "Question: " OR a line starting with "*"
+            // The 'gm' flag (Global Multiline) handles the anchors correctly
+            return rawText.replace(/(Question:\s)|(^\s*\*\s)/gm, (match) => {
+                if (match.includes("Question:")) {
+                    return `${counter++}. ${match}`;
+                }
+                return `${counter++}. `;
+            });
+        }
+
         function parseInput() {
-            const text = textarea.value.trim();
+            let text = textarea.value.trim();
             if (!text) {
                 alert('Please paste some content first.');
                 return;
             }
+
+            // 1. RUN AUTO-NUMBERING ALGORITHM BEFORE PARSING
+            text = autoNumberText(text);
+            
+            // 2. Update textarea so user sees the change (optional, but good UX)
+            textarea.value = text;
 
             questions = [];
             let currentQ = null;
@@ -290,7 +309,7 @@
             }
 
             if (questions.length === 0) {
-                alert('No questions detected. Try numbered (1.), unnumbered questions ending in ?, or check formatting.');
+                alert('No questions detected. Try using numbered lists, bullet points (*), or lines ending in "?"');
                 return;
             }
 
