@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robust Flashcard Quiz App (Auto-Numbering & Flagging)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background-color: #090216;
+            color: #d5fbff;
+        }
+        h1 {
+            text-align: center;
+        }
+        textarea {
+            width: 100%;
+            height: 300px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 14px;
+            margin-bottom: 20px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #1a102e;
+            color: #d5fbff;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin: 10px 10px 20px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+            color: #aaa;
+        }
+        #options {
+            text-align: center;
+        }
+        #quiz-area {
+            display: none;
+            margin-top: 40px;
+            padding: 30px;
+            background-color: #150a26;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            min-height: 300px;
+        }
+        #section-title {
+            font-size: 22px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 30px;
+            color: #ffcc00;
+            display: none;
+        }
+        #question {
+            font-size: 24px;
+            margin-bottom: 30px;
+            line-height: 1.5;
+            font-weight: bold;
+        }
+        #answer {
+            font-size: 20px;
+            color: #4ade80;
+            display: none;
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #0f2e1b;
+            border-left: 5px solid #28a745;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+        #controls {
+            text-align: center;
+            margin-top: 40px;
+            border-top: 1px solid #333;
+            padding-top: 20px;
+        }
+        #progress {
+            text-align: center;
+            font-size: 18px;
+            margin-top: 20px;
+            color: #888;
+        }
+        .keyboard-hint {
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+            font-style: italic;
+        }
+       
+        /* NEW STYLES FOR FLAGGING FEATURE */
+        #flag-btn.flagged {
+            background-color: #ffc107;
+            color: #000;
+        }
+        #flag-btn.flagged:hover {
+            background-color: #e0a800;
+        }
+        #flagged-area {
+            display: none;
+            margin-top: 40px;
+            padding: 30px;
+            background-color: #150a26;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        .flagged-item {
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #333;
+        }
+        .flagged-q {
+            font-size: 18px;
+            font-weight: bold;
+            color: #ffcc00;
+        }
+        .flagged-a {
+            color: #4ade80;
+            margin-top: 10px;
+            white-space: pre-wrap;
+        }
+        .remove-flag-btn {
+            background-color: #dc3545;
+            padding: 5px 15px;
+            font-size: 14px;
+            margin-top: 15px;
+        }
+        .remove-flag-btn:hover {
+            background-color: #c82333;
+        }
+        #view-flagged-btn {
+            background-color: #17a2b8;
+        }
+        #view-flagged-btn:hover {
+            background-color: #138496;
+        }
+    </style>
+</head>
+<body>
+    <h1>Flashcard Quiz App</h1>
+   
+    <p>Paste your notes below. You can use numbered lists (1.), bullet points (*), or "Question:" prefixes. The app will organize them automatically.</p>
+   
+    <textarea id="input-text" placeholder="Paste your generated questions here..."></textarea>
+   
+    <div id="options">
+        <button id="parse-btn">Start Quiz</button>
+        <button id="random-toggle">Randomize: Off</button>
+        <button id="reverse-toggle">Reverse Mode: Off</button>
+        <button id="section-toggle">Show Sections: Off</button>
+        <button id="view-flagged-btn">View Flagged Questions</button>
+    </div>
+   
+    <div id="quiz-area">
+        <div id="section-title"></div>
+        <div id="question"></div>
+        <div id="answer"></div>
+       
+        <div id="controls">
+            <button id="prev-btn">Previous</button>
+            <button id="flag-btn">☆ Flag</button>
+            <button id="reveal-btn">Show Answer</button>
+            <button id="next-btn">Next</button>
+        </div>
+       
+        <div id="progress"></div>
+       
+        <div class="keyboard-hint">
+            Keyboard shortcuts: <strong>N</strong> / → = Next, <strong>P</strong> / ← = Previous, <strong>A</strong> / <strong>Space</strong> / <strong>Enter</strong> = Show/Hide Answer
+        </div>
+    </div>
+    <div id="flagged-area">
+        <h2 style="color: #ffcc00; text-align: center; border-bottom: 1px solid #333; padding-bottom: 10px;">Flagged as Difficult</h2>
+        <div id="flagged-list"></div>
+        <div style="text-align: center; margin-top: 20px;">
+            <button id="close-flagged-btn" style="background-color: #6c757d;">Back to Quiz</button>
+        </div>
+    </div>
+    <script>
+        let questions = [];
+        let masterQuestions = [];
+        let currentIndex = 0;
+        let answerVisible = false;
+        let randomized = false;
+        let reversed = false;
+        let showSections = false;
+       
+        // NEW: Load flagged questions from local storage (with error handling for corrupted data)
+        let flaggedQuestions = [];
+        try {
+            const saved = localStorage.getItem('flashcard_flags');
+            if (saved) {
+                flaggedQuestions = JSON.parse(saved);
+            }
+        } catch (e) {
+            flaggedQuestions = [];
+        }
+        
+        const textarea = document.getElementById('input-text');
+        const parseBtn = document.getElementById('parse-btn');
+        const randomToggle = document.getElementById('random-toggle');
+        const reverseToggle = document.getElementById('reverse-toggle');
+        const sectionToggle = document.getElementById('section-toggle');
+        const quizArea = document.getElementById('quiz-area');
+        const sectionTitle = document.getElementById('section-title');
+        const questionEl = document.getElementById('question');
+        const answerEl = document.getElementById('answer');
+        const prevBtn = document.getElementById('prev-btn');
+        const revealBtn = document.getElementById('reveal-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const progressEl = document.getElementById('progress');
+        // NEW DOM ELEMENTS
+        const flagBtn = document.getElementById('flag-btn');
+        const viewFlaggedBtn = document.getElementById('view-flagged-btn');
+        const flaggedArea = document.getElementById('flagged-area');
+        const flaggedList = document.getElementById('flagged-list');
+        const closeFlaggedBtn = document.getElementById('close-flagged-btn');
+
+        function shuffle(arr) {
+            const a = arr.slice();
+            for (let i = a.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [a[i], a[j]] = [a[j], a[i]];
+            }
+            return a;
+        }
+
+        // HTML escape function to prevent broken rendering / XSS when questions contain < > & " etc.
+        function escapeHtml(unsafe) {
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function applySettings() {
+            if (randomized) {
+                questions = shuffle(masterQuestions.slice());
+            } else {
+                questions = masterQuestions.slice();
+            }
+            currentIndex = 0;
+            answerVisible = false;
+            answerEl.style.display = 'none';
+            showQuestion();
+        }
+
+        function updateRevealBtn() {
+            const term = reversed ? 'Question' : 'Answer';
+            revealBtn.textContent = answerVisible ? `Hide ${term}` : `Show ${term}`;
+            revealBtn.style.backgroundColor = answerVisible ? '#dc3545' : '#007bff';
+        }
+
+        // NEW: Check if current question is flagged
+        function isCurrentFlagged() {
+            if (questions.length === 0) return false;
+            const currentQText = questions[currentIndex].question;
+            return flaggedQuestions.some(fq => fq.question === currentQText);
+        }
+
+        // NEW: Update Flag Button UI based on state
+        function updateFlagBtnUI() {
+            if (isCurrentFlagged()) {
+                flagBtn.textContent = '★ Flagged';
+                flagBtn.classList.add('flagged');
+            } else {
+                flagBtn.textContent = '☆ Flag';
+                flagBtn.classList.remove('flagged');
+                flagBtn.style.backgroundColor = ''; // Reset to CSS default
+                flagBtn.style.color = '';
+            }
+        }
+
+        // NEW: Toggle flag status and save to local storage
+        function toggleFlag() {
+            if (questions.length === 0) return;
+            const q = questions[currentIndex];
+            const qText = q.question;
+            if (isCurrentFlagged()) {
+                // Remove from flagged
+                flaggedQuestions = flaggedQuestions.filter(fq => fq.question !== qText);
+            } else {
+                // Add to flagged
+                flaggedQuestions.push({ question: q.question, answer: q.answer });
+            }
+            // Save to browser storage
+            localStorage.setItem('flashcard_flags', JSON.stringify(flaggedQuestions));
+            updateFlagBtnUI();
+        }
+
+        // NEW: Render the list of flagged questions
+        function renderFlaggedList() {
+            flaggedList.innerHTML = '';
+            if (flaggedQuestions.length === 0) {
+                flaggedList.innerHTML = '<p style="text-align:center; color:#888;">No questions flagged yet. Click "☆ Flag" on a difficult question to save it here.</p>';
+            } else {
+                flaggedQuestions.forEach((fq, index) => {
+                    const div = document.createElement('div');
+                    div.className = 'flagged-item';
+                    div.innerHTML = `
+                        <div class="flagged-q">${index + 1}. ${escapeHtml(fq.question)}</div>
+                        <div class="flagged-a">${escapeHtml(fq.answer || '(No answer provided)')}</div>
+                        <button class="remove-flag-btn" data-q="${escapeHtml(fq.question)}">Remove Flag</button>
+                    `;
+                    flaggedList.appendChild(div);
+                });
+                // Attach remove event listeners to the new buttons
+                document.querySelectorAll('.remove-flag-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const qToRemove = e.target.getAttribute('data-q');
+                        flaggedQuestions = flaggedQuestions.filter(fq => fq.question !== qToRemove);
+                        localStorage.setItem('flashcard_flags', JSON.stringify(flaggedQuestions));
+                        renderFlaggedList();
+                        updateFlagBtnUI(); // Update quiz UI if it's currently showing
+                    });
+                });
+            }
+        }
+
+        function cleanAnswer(buffer) {
+            if (buffer.length === 0) return '';
+            let text = buffer.join('\n');
+            text = text.replace(/^\s*(Answer|Ans)[:\-\s]*/i, '');
+            return text.trim();
+        }
+
+        function autoNumberText(rawText) {
+            let counter = 1;
+            return rawText.replace(/(Question:\s)|(^\s*\*\s)/gm, (match) => {
+                if (match.includes("Question:")) {
+                    return `${counter++}. ${match}`;
+                }
+                return `${counter++}. `;
+            });
+        }
+
+        function parseInput() {
+            let text = textarea.value.trim();
+            if (!text) {
+                alert('Please paste some content first.');
+                return;
+            }
+            text = autoNumberText(text);
+            textarea.value = text;
+            questions = [];
+            let currentQ = null;
+            let currentABuffer = [];
+            let currentSection = '';
+            const lines = text.split('\n');
+            const numberRegex = /^\s*(\d+)\s*[\.\)\-\s]*\s*(.*)$/;
+            lines.forEach(line => {
+                const trimmed = line.trim();
+                if (trimmed === '' && !currentQ) {
+                    return;
+                }
+                const numMatch = line.match(numberRegex);
+                if (numMatch) {
+                    if (currentQ) {
+                        questions.push({
+                            question: currentQ.trim(),
+                            answer: cleanAnswer(currentABuffer),
+                            section: currentSection
+                        });
+                        currentABuffer = [];
+                    }
+                    // FIXED: numMatch is a match array; group 2 contains the actual question text (after the number)
+                    let content = numMatch[2];
+                    const qMarkIndex = content.indexOf('?');
+                    let questionText = content.trim();
+                    let immediateAnswer = '';
+                    if (qMarkIndex !== -1) {
+                        const before = content.substring(0, qMarkIndex + 1);
+                        const after = content.substring(qMarkIndex + 1).trimStart();
+                        if (after) {
+                            questionText = before.trim();
+                            immediateAnswer = after;
+                        }
+                    }
+                    currentQ = questionText;
+                    if (immediateAnswer) {
+                        currentABuffer.push(immediateAnswer);
+                    }
+                } else {
+                    if (currentQ) {
+                        currentABuffer.push(line);
+                    } else {
+                        if (trimmed.endsWith('?')) {
+                            let content = line;
+                            const qMarkIndex = content.indexOf('?');
+                            let questionText = trimmed;
+                            let immediateAnswer = '';
+                            if (qMarkIndex !== -1 && qMarkIndex < content.length - 1) {
+                                questionText = content.substring(0, qMarkIndex + 1).trim();
+                                immediateAnswer = content.substring(qMarkIndex + 1).trimStart();
+                            }
+                            currentQ = questionText;
+                            if (immediateAnswer) {
+                                currentABuffer.push(immediateAnswer);
+                            }
+                        } else if (trimmed && !trimmed.startsWith('---') && !trimmed.startsWith('___') && !trimmed.startsWith('***')) {
+                            currentSection = trimmed;
+                        }
+                    }
+                }
+            });
+            if (currentQ) {
+                questions.push({
+                    question: currentQ.trim(),
+                    answer: cleanAnswer(currentABuffer),
+                    section: currentSection
+                });
+            }
+            if (questions.length === 0) {
+                alert('No questions detected. Try using numbered lists, bullet points (*), or lines ending in "?"');
+                return;
+            }
+            masterQuestions = questions.slice();
+            randomized = false;
+            reversed = false;
+            showSections = false;
+            randomToggle.textContent = 'Randomize: Off';
+            reverseToggle.textContent = 'Reverse Mode: Off';
+            sectionToggle.textContent = 'Show Sections: Off';
+            applySettings();
+            flaggedArea.style.display = 'none'; // Hide flagged area if parsing new text
+            quizArea.style.display = 'block';
+            quizArea.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function showQuestion() {
+            if (questions.length === 0) return;
+            const q = questions[currentIndex];
+            const displayQ = reversed ? q.answer : q.question;
+            const displayA = reversed ? q.question : q.answer;
+            questionEl.textContent = `${currentIndex + 1}. ${displayQ}`;
+            answerEl.innerText = displayA || '(No answer)';
+            if (showSections && q.section) {
+                sectionTitle.textContent = q.section;
+                sectionTitle.style.display = 'block';
+            } else {
+                sectionTitle.style.display = 'none';
+            }
+            answerEl.style.display = 'none';
+            answerVisible = false;
+           
+            updateRevealBtn();
+            updateFlagBtnUI(); // NEW: Update the flag button for the current question
+            progressEl.textContent = `Card ${currentIndex + 1} of ${questions.length}`;
+            prevBtn.disabled = currentIndex === 0;
+            nextBtn.disabled = currentIndex === questions.length - 1;
+        }
+
+        function revealAnswer() {
+            answerVisible = !answerVisible;
+            answerEl.style.display = answerVisible ? 'block' : 'none';
+            updateRevealBtn();
+        }
+
+        function nextQuestion() {
+            if (currentIndex < questions.length - 1) {
+                currentIndex++;
+                showQuestion();
+            }
+        }
+
+        function prevQuestion() {
+            if (currentIndex > 0) {
+                currentIndex--;
+                showQuestion();
+            }
+        }
+
+        // Event listeners
+        parseBtn.addEventListener('click', parseInput);
+        randomToggle.addEventListener('click', () => {
+            randomized = !randomized;
+            randomToggle.textContent = `Randomize: ${randomized ? 'On' : 'Off'}`;
+            applySettings();
+        });
+        reverseToggle.addEventListener('click', () => {
+            reversed = !reversed;
+            reverseToggle.textContent = `Reverse Mode: ${reversed ? 'On' : 'Off'}`;
+            showQuestion();
+        });
+        sectionToggle.addEventListener('click', () => {
+            showSections = !showSections;
+            sectionToggle.textContent = `Show Sections: ${showSections ? 'On' : 'Off'}`;
+            showQuestion();
+        });
+        prevBtn.addEventListener('click', prevQuestion);
+        nextBtn.addEventListener('click', nextQuestion);
+        revealBtn.addEventListener('click', revealAnswer);
+       
+        // NEW Event Listeners
+        flagBtn.addEventListener('click', toggleFlag);
+       
+        viewFlaggedBtn.addEventListener('click', () => {
+            renderFlaggedList();
+            quizArea.style.display = 'none';
+            flaggedArea.style.display = 'block';
+            flaggedArea.scrollIntoView({ behavior: 'smooth' });
+        });
+        closeFlaggedBtn.addEventListener('click', () => {
+            flaggedArea.style.display = 'none';
+            if (questions.length > 0) {
+                quizArea.style.display = 'block';
+                quizArea.scrollIntoView({ behavior: 'smooth' });
+            }
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (quizArea.style.display === 'none') return;
+            if (document.activeElement === textarea) return;
+            if (e.key === 'n' || e.key === 'N' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                nextQuestion();
+            } else if (e.key === 'p' || e.key === 'P' || e.key === 'ArrowLeft') {
+                e.preventDefault();
+                prevQuestion();
+            } else if (e.key === 'a' || e.key === 'A' || e.key === ' ' || e.key === 'Enter') {
+                e.preventDefault();
+                revealAnswer();
+            }
+        });
+    </script>
+</body>
+</html>
