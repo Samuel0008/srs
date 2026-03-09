@@ -102,7 +102,7 @@
             color: #666;
             font-style: italic;
         }
-       
+      
         /* NEW STYLES FOR FLAGGING FEATURE */
         #flag-btn.flagged {
             background-color: #ffc107;
@@ -153,33 +153,47 @@
 </head>
 <body>
     <h1>Flashcard Quiz App</h1>
-   
+  
     <p>Paste your notes below. You can use numbered lists (1.), bullet points (*), or "Question:" prefixes. The app will organize them automatically.</p>
-   
+  
     <textarea id="input-text" placeholder="Paste your generated questions here..."></textarea>
-   
+  
     <div id="options">
         <button id="parse-btn">Start Quiz</button>
         <button id="random-toggle">Randomize: Off</button>
         <button id="reverse-toggle">Reverse Mode: Off</button>
         <button id="section-toggle">Show Sections: Off</button>
         <button id="view-flagged-btn">View Flagged Questions</button>
+        <select id="memory-select">
+            <option value="1" selected>Memory 1</option>
+            <option value="2">Memory 2</option>
+            <option value="3">Memory 3</option>
+            <option value="4">Memory 4</option>
+            <option value="5">Memory 5</option>
+            <option value="6">Memory 6</option>
+            <option value="7">Memory 7</option>
+            <option value="8">Memory 8</option>
+            <option value="9">Memory 9</option>
+            <option value="10">Memory 10</option>
+        </select>
     </div>
-   
+  
     <div id="quiz-area">
         <div id="section-title"></div>
         <div id="question"></div>
         <div id="answer"></div>
-       
+      
         <div id="controls">
             <button id="prev-btn">Previous</button>
             <button id="flag-btn">☆ Flag</button>
             <button id="reveal-btn">Show Answer</button>
             <button id="next-btn">Next</button>
+            <input type="number" id="jump-input" min="1" placeholder="Jump to #" style="width:80px; padding:8px; margin:0 10px; background-color: #1a102e; color: #d5fbff; border: 1px solid #ccc; border-radius: 4px;">
+            <button id="jump-btn">Go</button>
         </div>
-       
+      
         <div id="progress"></div>
-       
+      
         <div class="keyboard-hint">
             Keyboard shortcuts: <strong>N</strong> / → = Next, <strong>P</strong> / ← = Previous, <strong>A</strong> / <strong>Space</strong> / <strong>Enter</strong> = Show/Hide Answer
         </div>
@@ -199,18 +213,26 @@
         let randomized = false;
         let reversed = false;
         let showSections = false;
-       
-        // NEW: Load flagged questions from local storage (with error handling for corrupted data)
+      
+        // NEW: Memory selection
+        let currentMemory = 1;
         let flaggedQuestions = [];
-        try {
-            const saved = localStorage.getItem('flashcard_flags');
-            if (saved) {
-                flaggedQuestions = JSON.parse(saved);
+      
+        function loadFlaggedForMemory(mem) {
+            try {
+                flaggedQuestions = JSON.parse(localStorage.getItem(`flashcard_flags_${mem}`)) || [];
+            } catch (e) {
+                flaggedQuestions = [];
             }
-        } catch (e) {
-            flaggedQuestions = [];
         }
-        
+      
+        function saveFlaggedForMemory(mem) {
+            localStorage.setItem(`flashcard_flags_${mem}`, JSON.stringify(flaggedQuestions));
+        }
+      
+        // Initial load for default memory
+        loadFlaggedForMemory(currentMemory);
+      
         const textarea = document.getElementById('input-text');
         const parseBtn = document.getElementById('parse-btn');
         const randomToggle = document.getElementById('random-toggle');
@@ -230,7 +252,10 @@
         const flaggedArea = document.getElementById('flagged-area');
         const flaggedList = document.getElementById('flagged-list');
         const closeFlaggedBtn = document.getElementById('close-flagged-btn');
-
+        const memorySelect = document.getElementById('memory-select');
+        const jumpInput = document.getElementById('jump-input');
+        const jumpBtn = document.getElementById('jump-btn');
+      
         function shuffle(arr) {
             const a = arr.slice();
             for (let i = a.length - 1; i > 0; i--) {
@@ -239,7 +264,6 @@
             }
             return a;
         }
-
         // HTML escape function to prevent broken rendering / XSS when questions contain < > & " etc.
         function escapeHtml(unsafe) {
             return unsafe
@@ -249,7 +273,6 @@
                 .replace(/"/g, "&quot;")
                 .replace(/'/g, "&#039;");
         }
-
         function applySettings() {
             if (randomized) {
                 questions = shuffle(masterQuestions.slice());
@@ -261,20 +284,17 @@
             answerEl.style.display = 'none';
             showQuestion();
         }
-
         function updateRevealBtn() {
             const term = reversed ? 'Question' : 'Answer';
             revealBtn.textContent = answerVisible ? `Hide ${term}` : `Show ${term}`;
             revealBtn.style.backgroundColor = answerVisible ? '#dc3545' : '#007bff';
         }
-
         // NEW: Check if current question is flagged
         function isCurrentFlagged() {
             if (questions.length === 0) return false;
             const currentQText = questions[currentIndex].question;
             return flaggedQuestions.some(fq => fq.question === currentQText);
         }
-
         // NEW: Update Flag Button UI based on state
         function updateFlagBtnUI() {
             if (isCurrentFlagged()) {
@@ -287,7 +307,6 @@
                 flagBtn.style.color = '';
             }
         }
-
         // NEW: Toggle flag status and save to local storage
         function toggleFlag() {
             if (questions.length === 0) return;
@@ -300,11 +319,10 @@
                 // Add to flagged
                 flaggedQuestions.push({ question: q.question, answer: q.answer });
             }
-            // Save to browser storage
-            localStorage.setItem('flashcard_flags', JSON.stringify(flaggedQuestions));
+            // Save to browser storage for current memory
+            saveFlaggedForMemory(currentMemory);
             updateFlagBtnUI();
         }
-
         // NEW: Render the list of flagged questions
         function renderFlaggedList() {
             flaggedList.innerHTML = '';
@@ -326,21 +344,19 @@
                     btn.addEventListener('click', (e) => {
                         const qToRemove = e.target.getAttribute('data-q');
                         flaggedQuestions = flaggedQuestions.filter(fq => fq.question !== qToRemove);
-                        localStorage.setItem('flashcard_flags', JSON.stringify(flaggedQuestions));
+                        saveFlaggedForMemory(currentMemory);
                         renderFlaggedList();
                         updateFlagBtnUI(); // Update quiz UI if it's currently showing
                     });
                 });
             }
         }
-
         function cleanAnswer(buffer) {
             if (buffer.length === 0) return '';
             let text = buffer.join('\n');
             text = text.replace(/^\s*(Answer|Ans)[:\-\s]*/i, '');
             return text.trim();
         }
-
         function autoNumberText(rawText) {
             let counter = 1;
             return rawText.replace(/(Question:\s)|(^\s*\*\s)/gm, (match) => {
@@ -350,7 +366,6 @@
                 return `${counter++}. `;
             });
         }
-
         function parseInput() {
             let text = textarea.value.trim();
             if (!text) {
@@ -443,7 +458,6 @@
             quizArea.style.display = 'block';
             quizArea.scrollIntoView({ behavior: 'smooth' });
         }
-
         function showQuestion() {
             if (questions.length === 0) return;
             const q = questions[currentIndex];
@@ -459,34 +473,30 @@
             }
             answerEl.style.display = 'none';
             answerVisible = false;
-           
+          
             updateRevealBtn();
             updateFlagBtnUI(); // NEW: Update the flag button for the current question
             progressEl.textContent = `Card ${currentIndex + 1} of ${questions.length}`;
             prevBtn.disabled = currentIndex === 0;
             nextBtn.disabled = currentIndex === questions.length - 1;
         }
-
         function revealAnswer() {
             answerVisible = !answerVisible;
             answerEl.style.display = answerVisible ? 'block' : 'none';
             updateRevealBtn();
         }
-
         function nextQuestion() {
             if (currentIndex < questions.length - 1) {
                 currentIndex++;
                 showQuestion();
             }
         }
-
         function prevQuestion() {
             if (currentIndex > 0) {
                 currentIndex--;
                 showQuestion();
             }
         }
-
         // Event listeners
         parseBtn.addEventListener('click', parseInput);
         randomToggle.addEventListener('click', () => {
@@ -507,10 +517,10 @@
         prevBtn.addEventListener('click', prevQuestion);
         nextBtn.addEventListener('click', nextQuestion);
         revealBtn.addEventListener('click', revealAnswer);
-       
+      
         // NEW Event Listeners
         flagBtn.addEventListener('click', toggleFlag);
-       
+      
         viewFlaggedBtn.addEventListener('click', () => {
             renderFlaggedList();
             quizArea.style.display = 'none';
@@ -524,11 +534,33 @@
                 quizArea.scrollIntoView({ behavior: 'smooth' });
             }
         });
-
+        memorySelect.addEventListener('change', (e) => {
+            currentMemory = parseInt(e.target.value);
+            loadFlaggedForMemory(currentMemory);
+            if (flaggedArea.style.display === 'block') {
+                renderFlaggedList();
+            }
+            if (quizArea.style.display === 'block') {
+                updateFlagBtnUI();
+            }
+        });
+        jumpBtn.addEventListener('click', () => {
+            const num = parseInt(jumpInput.value);
+            if (num >= 1 && num <= questions.length) {
+                currentIndex = num - 1;
+                showQuestion();
+                jumpInput.value = '';
+            }
+        });
+        jumpInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                jumpBtn.click();
+            }
+        });
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if (quizArea.style.display === 'none') return;
-            if (document.activeElement === textarea) return;
+            if (document.activeElement === textarea || document.activeElement === jumpInput) return;
             if (e.key === 'n' || e.key === 'N' || e.key === 'ArrowRight') {
                 e.preventDefault();
                 nextQuestion();
